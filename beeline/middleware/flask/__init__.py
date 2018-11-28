@@ -99,32 +99,32 @@ class HoneyDBMiddleware(object):
             from sqlalchemy.engine import Engine
             from sqlalchemy.event import listen
 
-            listen(Engine, 'before_cursor_execute', self.before_cursor_execute)
-            listen(Engine, 'after_cursor_execute', self.after_cursor_execute)
+            listen(Engine, 'before_execute', self.before_execute)
+            listen(Engine, 'after_execute', self.after_execute)
             listen(Engine, 'handle_error', self.handle_error)
         except ImportError:
             pass
 
-    def before_cursor_execute(self, conn, cursor, statement, parameters, context, executemany):
+    def before_execute(self, conn, clauseelement, multiparams, params):
         if not current_app:
             return
 
-        params = []
-        for param in parameters:
+        params_ = []
+        for param in params:
             if type(param) == datetime.datetime:
                 param = param.isoformat()
-            params.append(param)
+            params_.append(param)
 
         self.state.span = beeline.start_span(context={
             "name": "flask_db_query",
             "type": "db",
             "db.query": statement,
-            "db.query_args": params,
+            "db.query_args": params_,
         })
 
         self.query_start_time = datetime.datetime.now()
 
-    def after_cursor_execute(self, conn, cursor, statement, parameters, context, executemany):
+    def after_execute(self, conn, clauseelement, multiparams, params, result):
         if not current_app:
             return
 
@@ -132,8 +132,8 @@ class HoneyDBMiddleware(object):
 
         beeline.add_context({
             "db.duration": query_duration.total_seconds() * 1000,
-            "db.last_insert_id": cursor.lastrowid,
-            "db.rows_affected": cursor.rowcount,
+            "db.last_insert_id": result.lastrowid,
+            "db.rows_affected": result.rowcount,
         })
         if self.state.span:
             beeline.finish_span(self.state.span)
